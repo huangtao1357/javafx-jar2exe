@@ -1,0 +1,33 @@
+name: jpackage_gui
+description: "JavaFX jar 打包成 Windows exe 的图形工具，封装 jpackage 命令。"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  provider: ^6.1.2
+  desktop_drop: ^0.4.4
+  file_picker: ^8.1.2
+  path_provider: ^2.1.4
+  path: ^1.9.0
+  archive: ^3.6.1
+  google_fonts: ^6.2.1
+  shared_preferences: ^2.3.2
+  path_provider_platform_interface: ^2.1.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/tools/
+    - assets/icons/

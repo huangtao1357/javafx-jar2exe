@@ -1,0 +1,38 @@
+# Flutter / Dart
+build/
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+pubspec.lock
+
+# IDE
+.idea/
+.vscode/
+.trae/
+.claude/
+*.iml
+*.ipr
+*.iws
+
+# 杂散构建产物
+META-INF/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Test assets (本地测试用的大文件，不入库)
+test_assets/
+
+# Build output
+*.exe
+*.msi
+
+# Local config
+.env
+.env.local
