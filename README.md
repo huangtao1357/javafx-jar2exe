@@ -13,7 +13,8 @@
 - **实时日志**：流式输出 jpackage/ProGuard/jdeps 命令日志，支持自由复制
 - **配置持久化**：自动保存上次配置，重启后恢复
 - **输出目录默认**：默认输出到 exe 所在目录的 `output` 子目录
-![Uploading image.png…]()
+<img width="1920" height="1069" alt="image" src="https://github.com/user-attachments/assets/0a8b4186-40a8-445f-921a-a65080ee32e6" />
+
 
 ## 环境要求
 
