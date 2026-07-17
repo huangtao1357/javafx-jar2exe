@@ -96,7 +96,9 @@ class PackPipeline {
     // JavaFX：通过 jpackage --module-path/--add-modules 交给 jlink 链入 runtime。
     // 切勿把 JavaFX jar 放进 --input（会进 classpath，与模块路径冲突，导致 Failed to launch JVM）。
     String? fxModulePath;
-    const fxAddModules = 'javafx.controls,javafx.fxml,javafx.graphics';
+    final fxAddModules = config.javafxModules.isNotEmpty
+        ? config.javafxModules
+        : 'javafx.controls,javafx.fxml,javafx.graphics';
     if (jarInfo.needsJavaFxSdk) {
       if (config.javafxSdkPath == null || config.javafxSdkPath!.isEmpty) {
         return const PipelineResult(
@@ -196,6 +198,8 @@ class PackPipeline {
         javafxSdkPath: config.javafxSdkPath!,
         appImageDir: appImageDir,
         appName: config.appName,
+        addModules: fxAddModules,
+        stripUnused: config.stripUnusedJavaFxDlls,
         log: log,
       );
     }
@@ -277,6 +281,8 @@ class PackPipeline {
     required String javafxSdkPath,
     required String appImageDir,
     required String appName,
+    required String addModules,
+    required bool stripUnused,
     required LogSink log,
   }) async {
     final fxBinDir = Directory(p.join(javafxSdkPath, 'bin'));
@@ -285,23 +291,46 @@ class PackPipeline {
       return;
     }
 
-    // 只放进 app/（$APPDIR），不要堆到 exe 同级目录，保持根目录干净：
-    //   AppName.exe
-    //   app/
-    //   runtime/
+    // 只放进 app/（$APPDIR），不要堆到 exe 同级目录，保持根目录干净
     final appDir = Directory(p.join(appImageDir, 'app'));
     await appDir.create(recursive: true);
+
+    // 根据 addModules 决定哪些 native DLL 需要复制（仅在 stripUnused 开启时裁剪）
+    // javafx.web → jfxwebkit.dll（~93MB）
+    // javafx.media → gstreamer-lite.dll, jfxmedia.dll, fxplugins.dll
+    // javafx.graphics → glass.dll, prism_*.dll, javafx_font.dll, decora_sse.dll, javafx_iio.dll（必需）
+    final Set<String> excludedDlls;
+    if (stripUnused) {
+      final modules = addModules.toLowerCase();
+      final hasWeb = modules.contains('javafx.web');
+      final hasMedia = modules.contains('javafx.media');
+      excludedDlls = {
+        if (!hasWeb) 'jfxwebkit.dll',
+        if (!hasMedia) ...{
+          'gstreamer-lite.dll',
+          'jfxmedia.dll',
+          'fxplugins.dll',
+        },
+      };
+    } else {
+      excludedDlls = {};
+    }
 
     int count = 0;
     await for (final entity in fxBinDir.list()) {
       if (entity is! File) continue;
       final name = p.basename(entity.path).toLowerCase();
       if (!name.endsWith('.dll')) continue;
-      // 跳过会与 runtime 自带 CRT 冲突/重复的通用运行库（可选保留也可）
+      if (excludedDlls.contains(name)) {
+        continue;
+      }
       await entity.copy(p.join(appDir.path, p.basename(entity.path)));
       count++;
     }
-    log('已复制 $count 个 JavaFX native DLL 到 app/（不污染 exe 同级目录）', LogLevel.info);
+    final savedMsg = excludedDlls.isNotEmpty
+        ? '（已排除 ${excludedDlls.length} 个未使用模块的 DLL: ${excludedDlls.join(", ")}）'
+        : '';
+    log('已复制 $count 个 JavaFX native DLL 到 app/ $savedMsg', LogLevel.info);
 
     // 确保 cfg 有 java.library.path=$APPDIR
     final cfgPath = p.join(appImageDir, 'app', '$appName.cfg');

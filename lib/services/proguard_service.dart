@@ -131,7 +131,8 @@ class ProGuardService {
       }
     }
     sb.writeln();
-    sb.writeln('-injars "$inputJar"');
+    // 使用 ProGuard injars 过滤器排除源码文件（.kt/.java），减小输出 jar 体积
+    sb.writeln('-injars "$inputJar"(!**.kt,!**.java)');
     sb.writeln('-outjars "$outputJar"');
     sb.writeln();
     sb.writeln('# 保留入口类（含 main）');

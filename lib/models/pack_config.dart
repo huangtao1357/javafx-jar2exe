@@ -16,6 +16,8 @@ class PackConfig {
   bool enableProGuard;
   bool keepResources;
   String? javafxSdkPath;
+  String javafxModules;
+  bool stripUnusedJavaFxDlls;
 
   PackConfig({
     this.jarPath = '',
@@ -33,6 +35,8 @@ class PackConfig {
     this.enableProGuard = true,
     this.keepResources = true,
     this.javafxSdkPath,
+    this.javafxModules = 'javafx.controls,javafx.fxml,javafx.graphics',
+    this.stripUnusedJavaFxDlls = true,
   });
 
   String? validate() {
@@ -61,6 +65,8 @@ class PackConfig {
         'enableProGuard': enableProGuard,
         'keepResources': keepResources,
         'javafxSdkPath': javafxSdkPath,
+        'javafxModules': javafxModules,
+        'stripUnusedJavaFxDlls': stripUnusedJavaFxDlls,
       };
 
   factory PackConfig.fromJson(Map<String, dynamic> json) => PackConfig(
@@ -79,6 +85,8 @@ class PackConfig {
         enableProGuard: json['enableProGuard'] as bool? ?? true,
         keepResources: json['keepResources'] as bool? ?? true,
         javafxSdkPath: json['javafxSdkPath'] as String?,
+        javafxModules: json['javafxModules'] as String? ?? 'javafx.controls,javafx.fxml,javafx.graphics',
+        stripUnusedJavaFxDlls: json['stripUnusedJavaFxDlls'] as bool? ?? true,
       );
 
   PackConfig copy() => PackConfig.fromJson(toJson());
@@ -86,10 +94,9 @@ class PackConfig {
   void applyJarInfo(JarInfo info) {
     jarPath = info.path;
     if (moduleName.isEmpty) moduleName = info.moduleName;
-    if (appName.isEmpty) {
-      final base = info.path.split(RegExp(r'[/\\]')).last;
-      appName = base.endsWith('.jar') ? base.substring(0, base.length - 4) : base;
-    }
+    // 始终根据 jar 文件名更新应用名称
+    final base = info.path.split(RegExp(r'[/\\]')).last;
+    appName = base.endsWith('.jar') ? base.substring(0, base.length - 4) : base;
     final entry = info.defaultEntry;
     if (entry != null) mainClass = entry.className;
   }

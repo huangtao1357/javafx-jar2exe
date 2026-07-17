@@ -72,7 +72,7 @@ class ParamForm extends StatelessWidget {
           onChanged: (v) => vm.pickJdkPath(v),
         ),
         const SizedBox(height: 8),
-        if (vm.jarInfo?.needsJavaFxSdk == true)
+        if (vm.jarInfo?.needsJavaFxSdk == true) ...[
           _PathField(
             label: 'JavaFX SDK 路径 * (检测到 JavaFX 依赖)',
             value: c.javafxSdkPath ?? '',
@@ -84,6 +84,20 @@ class ParamForm extends StatelessWidget {
             },
             onChanged: (v) => vm.updateConfig((x) => x.javafxSdkPath = v.isEmpty ? null : v),
           ),
+          const SizedBox(height: 8),
+          _JavaFxModulesField(
+            value: c.javafxModules,
+            enabled: !disabled,
+            onChanged: (v) => vm.updateConfig((x) => x.javafxModules = v),
+          ),
+          const SizedBox(height: 4),
+          _SwitchRow(
+            label: '裁剪未使用的 JavaFX DLL（排除 jfxwebkit.dll 等，省 ~94MB）',
+            value: c.stripUnusedJavaFxDlls,
+            enabled: !disabled,
+            onChanged: (v) => vm.updateConfig((x) => x.stripUnusedJavaFxDlls = v),
+          ),
+        ],
         const SizedBox(height: 8),
         _TextField(
           label: '供应商 (vendor)',
@@ -131,6 +145,100 @@ class ParamForm extends StatelessWidget {
   }
 }
 
+class _JavaFxModulesField extends StatefulWidget {
+  final String value;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+  const _JavaFxModulesField({
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  @override
+  State<_JavaFxModulesField> createState() => _JavaFxModulesFieldState();
+}
+
+class _JavaFxModulesFieldState extends State<_JavaFxModulesField> {
+  static const _allModules = [
+    ('javafx.controls', 'controls（按钮、列表等基础控件）'),
+    ('javafx.fxml', 'fxml（FXML 布局加载）'),
+    ('javafx.graphics', 'graphics（渲染引擎，必需）'),
+    ('javafx.web', 'web（WebView 浏览器，+93MB）'),
+    ('javafx.media', 'media（音频/视频播放，+1.3MB）'),
+    ('javafx.swing', 'swing（Swing 互操作）'),
+  ];
+
+  List<String> _selected() => widget.value
+      .split(',')
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList();
+
+  void _toggle(String mod) {
+    final list = _selected();
+    if (list.contains(mod)) {
+      list.remove(mod);
+    } else {
+      list.add(mod);
+    }
+    widget.onChanged(list.join(','));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = _selected();
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0F9FF),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFBAE6FD)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.extension, size: 14, color: Color(0xFF0EA5E9)),
+              SizedBox(width: 4),
+              Text(
+                'JavaFX 模块选择',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0369A1)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              for (final (mod, desc) in _allModules)
+                FilterChip(
+                  label: Text(mod, style: const TextStyle(fontSize: 11)),
+                  tooltip: desc,
+                  selected: selected.contains(mod),
+                  onSelected: widget.enabled ? (_) => _toggle(mod) : null,
+                  selectedColor: const Color(0xFF2563EB),
+                  labelStyle: TextStyle(
+                    fontSize: 11,
+                    color: selected.contains(mod) ? Colors.white : const Color(0xFF475569),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '勾选 web 会自动包含 jfxwebkit.dll；勾选 media 会自动包含 gstreamer/jfxmedia',
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SectionTitle extends StatelessWidget {
   final String text;
   const _SectionTitle(this.text);
@@ -164,7 +272,7 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
-class _TextField extends StatelessWidget {
+class _TextField extends StatefulWidget {
   final String label;
   final String value;
   final bool enabled;
@@ -179,20 +287,52 @@ class _TextField extends StatelessWidget {
   });
 
   @override
+  State<_TextField> createState() => _TextFieldState();
+}
+
+class _TextFieldState extends State<_TextField> {
+  late TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value);
+  }
+
+  @override
+  void didUpdateWidget(_TextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 只在外部值变化且与当前输入框内容不同时同步（避免光标跳转）
+    if (widget.value != oldWidget.value && widget.value != _controller.text) {
+      final selection = _controller.selection;
+      _controller.text = widget.value;
+      // 尝试保持光标位置
+      final newOffset = selection.baseOffset.clamp(0, widget.value.length);
+      _controller.selection = TextSelection.fromPosition(TextPosition(offset: newOffset));
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return TextField(
-      controller: TextEditingController(text: value)..selection = TextSelection.fromPosition(TextPosition(offset: value.length)),
+      controller: _controller,
       decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
+        labelText: widget.label,
+        hintText: widget.hint,
       ),
-      enabled: enabled,
-      onChanged: onChanged,
+      enabled: widget.enabled,
+      onChanged: widget.onChanged,
     );
   }
 }
 
-class _PathField extends StatelessWidget {
+class _PathField extends StatefulWidget {
   final String label;
   final String value;
   final bool enabled;
@@ -209,16 +349,42 @@ class _PathField extends StatelessWidget {
   });
 
   @override
+  State<_PathField> createState() => _PathFieldState();
+}
+
+class _PathFieldState extends State<_PathField> {
+  late TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value);
+  }
+
+  @override
+  void didUpdateWidget(_PathField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.value != oldWidget.value && widget.value != _controller.text) {
+      _controller.text = widget.value;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Row(
       children: [
         Expanded(
           child: TextField(
-            controller: TextEditingController(text: value)
-              ..selection = TextSelection.fromPosition(TextPosition(offset: value.length)),
-            decoration: InputDecoration(labelText: label),
-            enabled: enabled,
-            onChanged: onChanged,
+            controller: _controller,
+            decoration: InputDecoration(labelText: widget.label),
+            enabled: widget.enabled,
+            onChanged: widget.onChanged,
           ),
         ),
         const SizedBox(width: 8),
@@ -232,13 +398,13 @@ class _PathField extends StatelessWidget {
             side: const BorderSide(color: Color(0xFF93C5FD)),
             backgroundColor: const Color(0xFFEFF6FF),
           ),
-          onPressed: enabled
+          onPressed: widget.enabled
               ? () async {
-                  final p = await onPick();
-                  if (p != null) onChanged(p);
+                  final p = await widget.onPick();
+                  if (p != null) widget.onChanged(p);
                 }
               : null,
-          child: Text(buttonText, style: const TextStyle(fontSize: 12)),
+          child: Text(widget.buttonText, style: const TextStyle(fontSize: 12)),
         ),
       ],
     );

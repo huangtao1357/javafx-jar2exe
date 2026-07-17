@@ -40,6 +40,8 @@ class JPackageService {
       '--dest', outputDir,
       '--vendor', vendor,
       '--verbose',
+      // jpackage 默认已 strip-debug/no-header-files/no-man-pages，额外添加 compress=2
+      '--jlink-options', '--compress=2',
     ];
     if (addModules != null && addModules.isNotEmpty) {
       args.addAll(['--add-modules', addModules]);
@@ -105,6 +107,8 @@ class JPackageService {
       '--dest', outputDir,
       '--vendor', vendor,
       '--verbose',
+      // jpackage 默认已 strip-debug/no-header-files/no-man-pages，额外添加 compress=2
+      '--jlink-options', '--compress=2',
     ];
     // JavaFX 等外部模块：交给 jlink 链进 runtime，不要放进 --input classpath
     if (modulePath != null && modulePath.isNotEmpty) {
