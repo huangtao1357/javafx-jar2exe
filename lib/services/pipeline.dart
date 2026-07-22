@@ -41,8 +41,29 @@ class PackPipeline {
     log('临时工作目录: $workDir', LogLevel.info);
 
     final originalJar = config.jarPath;
-    String activeJar = originalJar;
 
+    try {
+      final result = await _runPipeline(
+        config: config,
+        jarInfo: jarInfo,
+        workDir: workDir,
+        activeJar: originalJar,
+        log: log,
+      );
+      return result;
+    } finally {
+      // 任务完成后清理临时工作目录，防止 C 盘缓存堆积
+      await _cleanupWorkDir(workDir, log);
+    }
+  }
+
+  Future<PipelineResult> _runPipeline({
+    required PackConfig config,
+    required JarInfo jarInfo,
+    required String workDir,
+    required String activeJar,
+    required LogSink log,
+  }) async {
     if (_canceled) return _canceledResult();
 
     if (config.enableProGuard) {
@@ -239,6 +260,18 @@ class PackPipeline {
     );
     await Directory(workDir).create(recursive: true);
     return workDir;
+  }
+
+  Future<void> _cleanupWorkDir(String workDir, LogSink log) async {
+    try {
+      final dir = Directory(workDir);
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+        log('已清理临时工作目录: $workDir', LogLevel.info);
+      }
+    } catch (e) {
+      log('清理临时目录失败（不影响打包结果）: $e', LogLevel.warning);
+    }
   }
 
   Future<void> _cleanOldAppImage(String dirPath, String appName, LogSink log) async {

@@ -137,13 +137,17 @@ class Modularizer {
     required String tag,
   }) async {
     try {
-      final proc = await Process.start(executable, args, runInShell: false);
+      final env = Map<String, String>.from(Platform.environment);
+      final existing = env['JAVA_TOOL_OPTIONS'] ?? '';
+      const utf8Opts = '-Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8';
+      env['JAVA_TOOL_OPTIONS'] = existing.isEmpty ? utf8Opts : '$existing $utf8Opts';
+      final proc = await Process.start(executable, args, runInShell: false, environment: env);
       final stdoutSub = proc.stdout
-          .transform<String>(const SystemEncoding().decoder)
+          .transform<String>(const Utf8Decoder(allowMalformed: true))
           .transform(const LineSplitter())
           .listen((line) => log('$tag $line', LogLevel.info));
       final stderrSub = proc.stderr
-          .transform<String>(const SystemEncoding().decoder)
+          .transform<String>(const Utf8Decoder(allowMalformed: true))
           .transform(const LineSplitter())
           .listen((line) => log('$tag $line', LogLevel.warning));
       final code = await proc.exitCode;

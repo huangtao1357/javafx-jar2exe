@@ -197,10 +197,14 @@ class JPackageService {
     Process? proc;
     final errorLines = <String>[];
     try {
-      proc = await Process.start(executable, args, runInShell: false);
+      final env = Map<String, String>.from(Platform.environment);
+      final existing = env['JAVA_TOOL_OPTIONS'] ?? '';
+      const utf8Opts = '-Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8';
+      env['JAVA_TOOL_OPTIONS'] = existing.isEmpty ? utf8Opts : '$existing $utf8Opts';
+      proc = await Process.start(executable, args, runInShell: false, environment: env);
       handle?.attach(proc);
       final stdoutSub = proc.stdout
-          .transform<String>(const SystemEncoding().decoder)
+          .transform<String>(const Utf8Decoder(allowMalformed: true))
           .transform(const LineSplitter())
           .listen((line) {
         log('$tag $line', LogLevel.info);
@@ -211,7 +215,7 @@ class JPackageService {
         }
       });
       final stderrSub = proc.stderr
-          .transform<String>(const SystemEncoding().decoder)
+          .transform<String>(const Utf8Decoder(allowMalformed: true))
           .transform(const LineSplitter())
           .listen((line) {
         log('$tag $line', LogLevel.warning);

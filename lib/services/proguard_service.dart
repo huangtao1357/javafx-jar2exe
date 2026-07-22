@@ -64,6 +64,12 @@ class ProGuardService {
 
     log('[ProGuard] java ${args.join(' ')}', LogLevel.command);
     final ok = await _runProcess(javaPath, args, log: log, tag: '[ProGuard]');
+
+    // 清理 ProGuard 临时工作目录
+    try {
+      await Directory(workDir).delete(recursive: true);
+    } catch (_) {}
+
     if (!ok) {
       log('[ProGuard] 混淆失败', LogLevel.error);
       return false;
@@ -193,13 +199,17 @@ class ProGuardService {
     required String tag,
   }) async {
     try {
-      final proc = await Process.start(executable, args, runInShell: false);
+      final env = Map<String, String>.from(Platform.environment);
+      final existing = env['JAVA_TOOL_OPTIONS'] ?? '';
+      const utf8Opts = '-Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8';
+      env['JAVA_TOOL_OPTIONS'] = existing.isEmpty ? utf8Opts : '$existing $utf8Opts';
+      final proc = await Process.start(executable, args, runInShell: false, environment: env);
       final stdoutSub = proc.stdout
-          .transform<String>(const SystemEncoding().decoder)
+          .transform<String>(const Utf8Decoder(allowMalformed: true))
           .transform(const LineSplitter())
           .listen((line) => log('$tag $line', LogLevel.info));
       final stderrSub = proc.stderr
-          .transform<String>(const SystemEncoding().decoder)
+          .transform<String>(const Utf8Decoder(allowMalformed: true))
           .transform(const LineSplitter())
           .listen((line) => log('$tag $line', LogLevel.warning));
       final code = await proc.exitCode;
