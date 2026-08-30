@@ -1,9 +1,8 @@
-import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'log_types.dart';
+import 'process_runner.dart';
 
 class ProGuardService {
   Future<String> _ensureJar() async {
@@ -40,6 +39,7 @@ class ProGuardService {
     required bool keepResources,
     required LogSink log,
     String? javafxSdkPath,
+    ProcessHandle? handle,
   }) async {
     final proguardJar = await _ensureJar();
     final dir = await getTemporaryDirectory();
@@ -63,7 +63,7 @@ class ProGuardService {
     final args = ['-jar', proguardJar, '@$configPath'];
 
     log('[ProGuard] java ${args.join(' ')}', LogLevel.command);
-    final ok = await _runProcess(javaPath, args, log: log, tag: '[ProGuard]');
+    final ok = await runProcess(javaPath, args, log: log, tag: '[ProGuard]', handle: handle);
 
     // 清理 ProGuard 临时工作目录
     try {
@@ -190,35 +190,5 @@ class ProGuardService {
     sb.writeln('    public static ** valueOf(java.lang.String);');
     sb.writeln('}');
     return sb.toString();
-  }
-
-  Future<bool> _runProcess(
-    String executable,
-    List<String> args, {
-    required LogSink log,
-    required String tag,
-  }) async {
-    try {
-      final env = Map<String, String>.from(Platform.environment);
-      final existing = env['JAVA_TOOL_OPTIONS'] ?? '';
-      const utf8Opts = '-Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8';
-      env['JAVA_TOOL_OPTIONS'] = existing.isEmpty ? utf8Opts : '$existing $utf8Opts';
-      final proc = await Process.start(executable, args, runInShell: false, environment: env);
-      final stdoutSub = proc.stdout
-          .transform<String>(const Utf8Decoder(allowMalformed: true))
-          .transform(const LineSplitter())
-          .listen((line) => log('$tag $line', LogLevel.info));
-      final stderrSub = proc.stderr
-          .transform<String>(const Utf8Decoder(allowMalformed: true))
-          .transform(const LineSplitter())
-          .listen((line) => log('$tag $line', LogLevel.warning));
-      final code = await proc.exitCode;
-      await stdoutSub.cancel();
-      await stderrSub.cancel();
-      return code == 0;
-    } catch (e) {
-      log('$tag 进程异常: $e', LogLevel.error);
-      return false;
-    }
   }
 }

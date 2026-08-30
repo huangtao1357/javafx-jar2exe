@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/pack_config.dart';
 import '../models/jar_info.dart';
 import 'log_types.dart';
+import 'process_runner.dart';
 import 'proguard_service.dart';
 import 'modularizer.dart';
 import 'jpackage_service.dart';
@@ -40,17 +41,22 @@ class PackPipeline {
     log('====== 开始打包流程 ======', LogLevel.info);
     log('临时工作目录: $workDir', LogLevel.info);
 
-    final originalJar = config.jarPath;
-
     try {
-      final result = await _runPipeline(
+      // 在临时目录中操作 jar 副本：模块化会往 jar 里写入 module-info.class，
+      // 非模块化回退也要在 jar 旁边建 input 目录，直接使用原文件会改写用户的 jar、污染其所在目录。
+      final workJar = p.join(workDir, p.basename(config.jarPath));
+      try {
+        await File(config.jarPath).copy(workJar);
+      } catch (e) {
+        return PipelineResult(success: false, message: '复制 jar 到临时目录失败（文件被占用？）: $e');
+      }
+      return await _runPipeline(
         config: config,
         jarInfo: jarInfo,
         workDir: workDir,
-        activeJar: originalJar,
+        activeJar: workJar,
         log: log,
       );
-      return result;
     } finally {
       // 任务完成后清理临时工作目录，防止 C 盘缓存堆积
       await _cleanupWorkDir(workDir, log);
@@ -66,55 +72,8 @@ class PackPipeline {
   }) async {
     if (_canceled) return _canceledResult();
 
-    if (config.enableProGuard) {
-      log('步骤 1/4: ProGuard 混淆', LogLevel.info);
-      final obfuscated = p.join(workDir, 'obfuscated.jar');
-      final ok = await _proguard.run(
-        inputJar: activeJar,
-        outputJar: obfuscated,
-        mainClass: config.mainClass,
-        javaPath: p.join(config.jdkPath, 'bin', 'java.exe'),
-        jdkPath: config.jdkPath,
-        keepResources: config.keepResources,
-        javafxSdkPath: jarInfo.needsJavaFxSdk ? config.javafxSdkPath : null,
-        log: log,
-      );
-      if (!ok) {
-        return const PipelineResult(success: false, message: 'ProGuard 混淆失败');
-      }
-      activeJar = obfuscated;
-    } else {
-      log('步骤 1/4: 跳过 ProGuard 混淆（已关闭）', LogLevel.info);
-    }
-
-    if (_canceled) return _canceledResult();
-
-    String moduleName = config.moduleName.isNotEmpty ? config.moduleName : jarInfo.moduleName;
-    log('步骤 2/4: 模块化处理', LogLevel.info);
-    final modResult = await _modularizer.modularize(
-      jarPath: activeJar,
-      jdkPath: config.jdkPath,
-      log: log,
-    );
-    bool useModular = modResult.success;
-    if (!useModular) {
-      log('[Modular] ${modResult.message ?? "模块化失败"}', LogLevel.warning);
-      log('[Modular] 将回退到非模块化打包模式（class 不会完全隐藏，但功能可用）', LogLevel.warning);
-    } else {
-      moduleName = modResult.moduleName ?? moduleName;
-    }
-
-    if (_canceled) return _canceledResult();
-
-    // 清理旧的 app-image 目录（jpackage 不覆盖已存在的目录）
-    final oldAppImageDir = p.join(config.outputDir, config.appName);
-    try {
-      await _cleanOldAppImage(oldAppImageDir, config.appName, log);
-    } catch (e) {
-      return PipelineResult(success: false, message: e.toString());
-    }
-
-    // JavaFX：通过 jpackage --module-path/--add-modules 交给 jlink 链入 runtime。
+    // JavaFX SDK 前置校验：放在混淆/模块化之前，避免白跑数分钟耗时步骤后才报错。
+    // JavaFX 通过 jpackage --module-path/--add-modules 交给 jlink 链入 runtime。
     // 切勿把 JavaFX jar 放进 --input（会进 classpath，与模块路径冲突，导致 Failed to launch JVM）。
     String? fxModulePath;
     final fxAddModules = config.javafxModules.isNotEmpty
@@ -136,6 +95,60 @@ class PackPipeline {
       }
       fxModulePath = fxLibDir;
       log('检测到 JavaFX 应用，将通过 jlink 链接: $fxLibDir ($fxAddModules)', LogLevel.info);
+    }
+
+    if (config.enableProGuard) {
+      log('步骤 1/4: ProGuard 混淆', LogLevel.info);
+      final obfuscated = p.join(workDir, 'obfuscated.jar');
+      final handle = ProcessHandle();
+      _activeHandle = handle;
+      final ok = await _proguard.run(
+        inputJar: activeJar,
+        outputJar: obfuscated,
+        mainClass: config.mainClass,
+        javaPath: p.join(config.jdkPath, 'bin', 'java.exe'),
+        jdkPath: config.jdkPath,
+        keepResources: config.keepResources,
+        javafxSdkPath: jarInfo.needsJavaFxSdk ? config.javafxSdkPath : null,
+        log: log,
+        handle: handle,
+      );
+      _activeHandle = null;
+      if (_canceled) return _canceledResult();
+      if (!ok) {
+        return const PipelineResult(success: false, message: 'ProGuard 混淆失败');
+      }
+      activeJar = obfuscated;
+    } else {
+      log('步骤 1/4: 跳过 ProGuard 混淆（已关闭）', LogLevel.info);
+    }
+
+    String moduleName = config.moduleName.isNotEmpty ? config.moduleName : jarInfo.moduleName;
+    log('步骤 2/4: 模块化处理', LogLevel.info);
+    final modHandle = ProcessHandle();
+    _activeHandle = modHandle;
+    final modResult = await _modularizer.modularize(
+      jarPath: activeJar,
+      jdkPath: config.jdkPath,
+      log: log,
+      handle: modHandle,
+    );
+    _activeHandle = null;
+    if (_canceled) return _canceledResult();
+    bool useModular = modResult.success;
+    if (!useModular) {
+      log('[Modular] ${modResult.message ?? "模块化失败"}', LogLevel.warning);
+      log('[Modular] 将回退到非模块化打包模式（class 不会完全隐藏，但功能可用）', LogLevel.warning);
+    } else {
+      moduleName = modResult.moduleName ?? moduleName;
+    }
+
+    // 清理旧的 app-image 目录（jpackage 不覆盖已存在的目录）
+    final oldAppImageDir = p.join(config.outputDir, config.appName);
+    try {
+      await _cleanOldAppImage(oldAppImageDir, config.appName, log);
+    } catch (e) {
+      return PipelineResult(success: false, message: e.toString());
     }
 
     // 合并用户 java options；JavaFX 时补充 library path
@@ -177,6 +190,7 @@ class PackPipeline {
       );
     } else {
       // 非模块化模式：仅业务 jar 进 input，用 --main-jar 引用
+      // （activeJar 位于临时 workDir，input 目录随 workDir 一并清理）
       final inputDir = p.join(p.dirname(activeJar), 'input');
       await Directory(inputDir).create(recursive: true);
       final inputJarPath = p.join(inputDir, p.basename(activeJar));
@@ -201,17 +215,16 @@ class PackPipeline {
       );
     }
     _activeHandle = null;
+    if (_canceled) return _canceledResult();
     if (!result.success) {
       return PipelineResult(success: false, message: result.message);
     }
-
-    if (_canceled) return _canceledResult();
 
     final appImageDir = p.join(config.outputDir, config.appName);
     final exePath = p.join(appImageDir, '${config.appName}.exe');
 
     // jlink 只链入 JavaFX 模块 class，不会自动带上 SDK bin 下的 native DLL。
-    // 把 DLL 拷到 app 根与 runtime/bin，并确保 cfg 中有 java.library.path。
+    // 把 DLL 拷到 app/（$APPDIR），并确保 cfg 中有 java.library.path。
     if (jarInfo.needsJavaFxSdk &&
         config.javafxSdkPath != null &&
         config.javafxSdkPath!.isNotEmpty) {
@@ -240,6 +253,7 @@ class PackPipeline {
         handle: msiHandle,
       );
       _activeHandle = null;
+      if (_canceled) return _canceledResult();
       if (!msiResult.success) {
         log('msi 生成失败，但 app-image 已成功', LogLevel.warning);
       }

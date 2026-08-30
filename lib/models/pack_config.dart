@@ -42,7 +42,17 @@ class PackConfig {
   String? validate() {
     if (jarPath.isEmpty) return '请选择 jar 文件';
     if (appName.isEmpty) return '请填写应用名称';
+    if (RegExp(r'[\\/:*?"<>|]').hasMatch(appName)) {
+      return r'应用名称包含非法字符（\ / : * ? " < > |）';
+    }
+    if (appName.endsWith('.') || appName.endsWith(' ')) {
+      return '应用名称不能以 "." 或空格结尾';
+    }
     if (appVersion.isEmpty) return '请填写应用版本号';
+    // jpackage 只接受点分整数版本号，否则中途抛 "版本包含无效组件" 的晦涩错误
+    if (!RegExp(r'^\d+(\.\d+)*$').hasMatch(appVersion)) {
+      return '应用版本号格式无效：需为点分数字（如 1.0.0），不能带 -beta、+build 等后缀';
+    }
     if (mainClass.isEmpty) return '请选择或输入 Main-Class';
     if (outputDir.isEmpty) return '请选择输出目录';
     if (jdkPath.isEmpty) return '未检测到 JDK，请手动指定 JDK 路径';

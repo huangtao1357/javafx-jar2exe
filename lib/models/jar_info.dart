@@ -30,6 +30,8 @@ class JarInfo {
   final List<MainClassEntry> candidateEntries;
   final bool isModular;
   final bool needsJavaFxSdk;
+  /// jar 自身打包了 JavaFX 类（fat jar），无需外部 SDK
+  final bool bundlesJavaFx;
 
   const JarInfo({
     required this.path,
@@ -38,6 +40,7 @@ class JarInfo {
     this.manifestMainClass,
     this.isModular = false,
     this.needsJavaFxSdk = false,
+    this.bundlesJavaFx = false,
   });
 
   List<MainClassEntry> get selectableEntries => candidateEntries;

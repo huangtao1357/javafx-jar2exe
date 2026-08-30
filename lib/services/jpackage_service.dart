@@ -1,8 +1,7 @@
-import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'log_types.dart';
+import 'process_runner.dart';
 
 class JPackageResult {
   final bool success;
@@ -60,7 +59,7 @@ class JPackageService {
 
     log('[jpackage] $jpackagePath ${args.join(' ')}', LogLevel.command);
     String? errorMsg;
-    final ok = await _runProcess(
+    final ok = await runProcess(
       jpackagePath,
       args,
       log: log,
@@ -131,7 +130,7 @@ class JPackageService {
 
     log('[jpackage] $jpackagePath ${args.join(' ')}', LogLevel.command);
     String? errorMsg;
-    final ok = await _runProcess(
+    final ok = await runProcess(
       jpackagePath,
       args,
       log: log,
@@ -173,7 +172,7 @@ class JPackageService {
     ];
 
     log('[jpackage] $jpackagePath ${args.join(' ')}', LogLevel.command);
-    final ok = await _runProcess(
+    final ok = await runProcess(
       jpackagePath,
       args,
       log: log,
@@ -185,79 +184,4 @@ class JPackageService {
     }
     return const JPackageResult(success: true);
   }
-
-  Future<bool> _runProcess(
-    String executable,
-    List<String> args, {
-    required LogSink log,
-    required String tag,
-    ProcessHandle? handle,
-    void Function(String errorMessage)? onError,
-  }) async {
-    Process? proc;
-    final errorLines = <String>[];
-    try {
-      final env = Map<String, String>.from(Platform.environment);
-      final existing = env['JAVA_TOOL_OPTIONS'] ?? '';
-      const utf8Opts = '-Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8';
-      env['JAVA_TOOL_OPTIONS'] = existing.isEmpty ? utf8Opts : '$existing $utf8Opts';
-      proc = await Process.start(executable, args, runInShell: false, environment: env);
-      handle?.attach(proc);
-      final stdoutSub = proc.stdout
-          .transform<String>(const Utf8Decoder(allowMalformed: true))
-          .transform(const LineSplitter())
-          .listen((line) {
-        log('$tag $line', LogLevel.info);
-        if (line.contains('AccessDeniedException') ||
-            line.contains('错误:') ||
-            line.contains('PackagerException')) {
-          errorLines.add(line);
-        }
-      });
-      final stderrSub = proc.stderr
-          .transform<String>(const Utf8Decoder(allowMalformed: true))
-          .transform(const LineSplitter())
-          .listen((line) {
-        log('$tag $line', LogLevel.warning);
-        errorLines.add(line);
-      });
-      final code = await proc.exitCode;
-      await stdoutSub.cancel();
-      await stderrSub.cancel();
-      if (code != 0 && onError != null && errorLines.isNotEmpty) {
-        onError(errorLines.join('\n'));
-      }
-      return code == 0;
-    } catch (e) {
-      log('$tag 进程异常: $e', LogLevel.error);
-      return false;
-    } finally {
-      handle?.detach();
-    }
-  }
 }
-
-class ProcessHandle {
-  Process? _proc;
-  bool _canceled = false;
-  bool get canceled => _canceled;
-
-  void attach(Process p) {
-    _proc = p;
-    if (_canceled) {
-      p.kill(ProcessSignal.sigkill);
-    }
-  }
-
-  void detach() {
-    _proc = null;
-  }
-
-  void cancel() {
-    _canceled = true;
-    _proc?.kill(ProcessSignal.sigkill);
-  }
-}
-
-String defaultAppImageDir(String outputDir, String appName) =>
-    p.join(outputDir, appName);

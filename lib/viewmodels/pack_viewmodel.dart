@@ -125,6 +125,13 @@ class PackViewModel extends ChangeNotifier {
         return;
       }
     }
+    // JavaFX SDK 前置校验：在进入流水线（混淆/模块化耗时数分钟）之前给出反馈
+    if (jarInfo!.needsJavaFxSdk &&
+        (config.javafxSdkPath == null || config.javafxSdkPath!.isEmpty)) {
+      errorMessage = '检测到 JavaFX 应用，但未指定 JavaFX SDK 路径。请先在参数表单中填写。';
+      notifyListeners();
+      return;
+    }
 
     logEntries.clear();
     isPacking = true;

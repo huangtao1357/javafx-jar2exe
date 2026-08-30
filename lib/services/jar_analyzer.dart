@@ -171,6 +171,9 @@ class JarAnalyzer {
 
     String? manifestMain;
     bool isModular = false;
+    // jar 自身打包了 javafx/** 类（fat jar）：此时不需要外部 JavaFX SDK，
+    // 若仍要求 SDK 并用 jlink 链入 SDK 模块，反而会因 split package 冲突导致打包失败
+    bool bundlesJavaFx = false;
     final classData = <Uint8List>[];
 
     for (final file in archive) {
@@ -181,6 +184,8 @@ class JarAnalyzer {
         );
       } else if (name == 'module-info.class') {
         isModular = true;
+      } else if (name.startsWith('javafx/') && name.endsWith('.class')) {
+        bundlesJavaFx = true;
       }
     }
 
@@ -234,7 +239,8 @@ class JarAnalyzer {
       manifestMainClass: manifestMain,
       candidateEntries: candidates,
       isModular: isModular,
-      needsJavaFxSdk: needsJavaFx,
+      needsJavaFxSdk: needsJavaFx && !bundlesJavaFx,
+      bundlesJavaFx: bundlesJavaFx,
     );
   }
 

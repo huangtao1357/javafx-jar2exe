@@ -110,6 +110,7 @@ class _JarInfoSummary extends StatelessWidget {
     final isModular = ji.isModular as bool;
     final manifest = ji.manifestMainClass;
     final needsFx = ji.needsJavaFxSdk as bool;
+    final bundlesFx = ji.bundlesJavaFx as bool;
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
@@ -133,6 +134,10 @@ class _JarInfoSummary extends StatelessWidget {
               if (needsFx) ...[
                 const SizedBox(width: 4),
                 _tag('JavaFX', const Color(0xFF7C3AED)),
+              ],
+              if (bundlesFx) ...[
+                const SizedBox(width: 4),
+                _tag('内置JavaFX', const Color(0xFF0D9488)),
               ],
             ],
           ),
