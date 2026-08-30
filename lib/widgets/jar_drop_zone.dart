@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../theme/app_theme.dart';
 import '../viewmodels/pack_viewmodel.dart';
 
 class JarDropZone extends StatelessWidget {
@@ -17,15 +18,19 @@ class JarDropZone extends StatelessWidget {
         Container(
           height: 90,
           decoration: BoxDecoration(
-            color: hasJar ? const Color(0xFFEFF6FF) : const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(8),
+            color: hasJar
+                ? AppPalette.primary.withValues(alpha: 0.07)
+                : AppPalette.surfaceSoft,
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: hasJar ? const Color(0xFF2563EB) : const Color(0xFFCBD5E1),
+              color: hasJar
+                  ? AppPalette.primary
+                  : AppPalette.border,
               width: 1.5,
             ),
           ),
           child: InkWell(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(12),
             onTap: vm.isPacking ? null : () => _pickJar(context),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -35,13 +40,20 @@ class JarDropZone extends StatelessWidget {
                     width: 44,
                     height: 44,
                     decoration: BoxDecoration(
-                      color: hasJar ? const Color(0xFF2563EB) : const Color(0xFFE2E8F0),
-                      borderRadius: BorderRadius.circular(8),
+                      gradient: hasJar
+                          ? const LinearGradient(
+                              colors: [AppPalette.primaryLight, AppPalette.primaryDark],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            )
+                          : null,
+                      color: hasJar ? null : AppPalette.border,
+                      borderRadius: BorderRadius.circular(11),
                     ),
                     child: Icon(
                       Icons.inventory_2_outlined,
                       size: 22,
-                      color: hasJar ? Colors.white : const Color(0xFF64748B),
+                      color: hasJar ? Colors.white : Colors.grey.shade500,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -55,7 +67,9 @@ class JarDropZone extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: hasJar ? const Color(0xFF1E40AF) : const Color(0xFF334155),
+                            color: hasJar
+                                ? AppPalette.primaryDark
+                                : Colors.grey.shade700,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -63,7 +77,9 @@ class JarDropZone extends StatelessWidget {
                           hasJar ? vm.config.jarPath : '或点击此区域选择文件',
                           style: TextStyle(
                             fontSize: 11,
-                            color: hasJar ? const Color(0xFF475569) : const Color(0xFF94A3B8),
+                            color: hasJar
+                                ? Colors.grey.shade600
+                                : Colors.grey.shade400,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -72,7 +88,7 @@ class JarDropZone extends StatelessWidget {
                     ),
                   ),
                   if (!hasJar)
-                    const Icon(Icons.touch_app, size: 16, color: Color(0xFF94A3B8)),
+                    Icon(Icons.touch_app, size: 16, color: Colors.grey.shade400),
                 ],
               ),
             ),
@@ -114,20 +130,20 @@ class _JarInfoSummary extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0F9FF),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFBAE6FD)),
+        color: AppPalette.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppPalette.primary.withValues(alpha: 0.18)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.check_circle, size: 14, color: Color(0xFF0EA5E9)),
+              const Icon(Icons.check_circle, size: 14, color: AppPalette.primary),
               const SizedBox(width: 4),
               const Text(
                 '已解析',
-                style: TextStyle(fontSize: 12, color: Color(0xFF0369A1), fontWeight: FontWeight.w600),
+                style: TextStyle(fontSize: 12, color: AppPalette.primaryDark, fontWeight: FontWeight.w600),
               ),
               const Spacer(),
               _tag(isModular ? '模块化' : '非模块化', isModular ? const Color(0xFF16A34A) : const Color(0xFFEA580C)),

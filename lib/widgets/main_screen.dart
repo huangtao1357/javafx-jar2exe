@@ -1,7 +1,10 @@
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
+import '../theme/app_theme.dart';
 import '../viewmodels/pack_viewmodel.dart';
+import 'about_dialog.dart';
 import 'action_bar.dart';
 import 'jar_drop_zone.dart';
 import 'log_console.dart';
@@ -14,50 +17,148 @@ class MainScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF2563EB), Color(0xFF3B82F6)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.inventory_2, color: Colors.white, size: 18),
+        titleSpacing: 16,
+        title: const _BrandTitle(),
+        actions: const [
+          _VersionBadge(),
+          _AboutButton(),
+          _ResetButton(),
+          SizedBox(width: 8),
+        ],
+      ),
+      body: const _Body(),
+    );
+  }
+}
+
+/// 品牌区：渐变发光图标 + 名称 + 标语
+class _BrandTitle extends StatelessWidget {
+  const _BrandTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [AppPalette.primaryLight, AppPalette.primaryDark],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-            const SizedBox(width: 10),
+            borderRadius: BorderRadius.circular(11),
+            boxShadow: AppShadows.glow(AppPalette.primary),
+          ),
+          child: const Icon(Icons.inventory_2, color: Colors.white, size: 21),
+        ),
+        const SizedBox(width: 11),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
             const Text(
               'JPackage GUI',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEFF6FF),
-                borderRadius: BorderRadius.circular(6),
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.4,
               ),
-              child: const Text(
-                'JavaFX jar → Windows exe',
-                style: TextStyle(fontSize: 11, color: Color(0xFF2563EB)),
+            ),
+            Text(
+              'JAVAFX JAR → EXE',
+              style: TextStyle(
+                fontSize: 9,
+                color: AppPalette.primary,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 2.2,
               ),
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            tooltip: '重置配置',
-            icon: const Icon(Icons.restart_alt, size: 20),
-            onPressed: () => context.read<PackViewModel>().resetConfig(),
+      ],
+    );
+  }
+}
+
+/// 标题栏版本徽标：点击打开「关于」
+class _VersionBadge extends StatefulWidget {
+  const _VersionBadge();
+
+  @override
+  State<_VersionBadge> createState() => _VersionBadgeState();
+}
+
+class _VersionBadgeState extends State<_VersionBadge> {
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) setState(() => _version = 'v${info.version}+${info.buildNumber}');
+    } catch (_) {
+      // 平台通道不可用时隐藏徽标
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_version.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => showAboutAppDialog(context),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: AppPalette.primary.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(10),
           ),
-          const SizedBox(width: 4),
-        ],
+          child: Text(
+            _version,
+            style: const TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: AppPalette.primaryDark,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
       ),
-      body: const _Body(),
+    );
+  }
+}
+
+class _AboutButton extends StatelessWidget {
+  const _AboutButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: '关于',
+      icon: const Icon(Icons.info_outline, size: 20),
+      onPressed: () => showAboutAppDialog(context),
+    );
+  }
+}
+
+class _ResetButton extends StatelessWidget {
+  const _ResetButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: '重置配置',
+      icon: const Icon(Icons.restart_alt, size: 20),
+      onPressed: () => context.read<PackViewModel>().resetConfig(),
     );
   }
 }
@@ -75,7 +176,6 @@ class _BodyState extends State<_Body> {
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<PackViewModel>();
-    final theme = Theme.of(context);
     return DropTarget(
       onDragEntered: (_) => setState(() => _dragging = true),
       onDragExited: (_) => setState(() => _dragging = false),
@@ -90,12 +190,19 @@ class _BodyState extends State<_Body> {
         }
       },
       child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFFF1F5F9),
-          border: _dragging
-              ? Border.all(color: theme.colorScheme.primary, width: 3)
-              : null,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppPalette.bgGradTop, AppPalette.bgGradBottom],
+          ),
+          border: null,
         ),
+        foregroundDecoration: _dragging
+            ? BoxDecoration(
+                border: Border.all(color: AppPalette.primary, width: 3),
+              )
+            : null,
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -103,16 +210,11 @@ class _BodyState extends State<_Body> {
             Expanded(
               flex: 3,
               child: Container(
-                margin: const EdgeInsets.fromLTRB(12, 12, 6, 12),
+                margin: const EdgeInsets.fromLTRB(16, 4, 8, 16),
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(16),
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                    ),
+                  child: AppCard(
+                    padding: const EdgeInsets.all(18),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -126,18 +228,24 @@ class _BodyState extends State<_Body> {
                           Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFFEF2F2),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: const Color(0xFFFECACA)),
+                              color: AppPalette.danger.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: AppPalette.danger.withValues(alpha: 0.25),
+                              ),
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 18),
+                                const Icon(Icons.error_outline,
+                                    color: AppPalette.dangerDeep, size: 18),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
                                     vm.errorMessage!,
-                                    style: const TextStyle(color: Color(0xFFDC2626), fontSize: 13),
+                                    style: const TextStyle(
+                                      color: AppPalette.dangerDeep,
+                                      fontSize: 13,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -154,7 +262,7 @@ class _BodyState extends State<_Body> {
             Expanded(
               flex: 2,
               child: Container(
-                margin: const EdgeInsets.fromLTRB(6, 12, 12, 12),
+                margin: const EdgeInsets.fromLTRB(8, 4, 16, 16),
                 child: const LogConsole(),
               ),
             ),

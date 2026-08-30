@@ -71,6 +71,8 @@ lib/
 │   ├── jdk_detector.dart     # JDK 检测
 │   ├── config_storage.dart   # 配置持久化
 │   └── log_types.dart        # 日志类型
+├── theme/
+│   └── app_theme.dart        # 主题与设计系统（色板/卡片/渐变按钮）
 ├── viewmodels/
 │   └── pack_viewmodel.dart   # MVVM ViewModel
 └── widgets/
@@ -78,7 +80,8 @@ lib/
     ├── jar_drop_zone.dart    # 拖拽区
     ├── param_form.dart       # 参数表单
     ├── action_bar.dart       # 操作按钮
-    └── log_console.dart      # 日志控制台
+    ├── log_console.dart      # 日志控制台
+    └── about_dialog.dart     # 关于对话框（版本信息）
 ```
 
 ## License

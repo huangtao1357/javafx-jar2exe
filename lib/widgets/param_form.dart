@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/jar_info.dart';
+import '../theme/app_theme.dart';
 import '../viewmodels/pack_viewmodel.dart';
 
 class ParamForm extends StatelessWidget {
@@ -191,20 +192,20 @@ class _JavaFxModulesFieldState extends State<_JavaFxModulesField> {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0F9FF),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFBAE6FD)),
+        color: AppPalette.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppPalette.primary.withValues(alpha: 0.18)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Row(
             children: [
-              Icon(Icons.extension, size: 14, color: Color(0xFF0EA5E9)),
+              Icon(Icons.extension, size: 14, color: AppPalette.primary),
               SizedBox(width: 4),
               Text(
                 'JavaFX 模块选择',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0369A1)),
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppPalette.primaryDark),
               ),
             ],
           ),
@@ -219,10 +220,11 @@ class _JavaFxModulesFieldState extends State<_JavaFxModulesField> {
                   tooltip: desc,
                   selected: selected.contains(mod),
                   onSelected: widget.enabled ? (_) => _toggle(mod) : null,
-                  selectedColor: const Color(0xFF2563EB),
+                  selectedColor: AppPalette.primary,
+                  checkmarkColor: Colors.white,
                   labelStyle: TextStyle(
                     fontSize: 11,
-                    color: selected.contains(mod) ? Colors.white : const Color(0xFF475569),
+                    color: selected.contains(mod) ? Colors.white : const Color(0xFF5B5C74),
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                 ),
@@ -253,17 +255,17 @@ class _SectionTitle extends StatelessWidget {
             width: 3,
             height: 14,
             decoration: BoxDecoration(
-              color: const Color(0xFF2563EB),
+              color: AppPalette.primary,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
           const SizedBox(width: 8),
           Text(
             text,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF1E293B),
+              color: Colors.grey.shade800,
             ),
           ),
         ],
@@ -390,13 +392,7 @@ class _PathFieldState extends State<_PathField> {
         const SizedBox(width: 8),
         OutlinedButton(
           style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFF2563EB),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            side: const BorderSide(color: Color(0xFF93C5FD)),
-            backgroundColor: const Color(0xFFEFF6FF),
           ),
           onPressed: widget.enabled
               ? () async {
@@ -491,8 +487,9 @@ class _MainClassFieldState extends State<_MainClassField> {
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
-              border: Border.all(color: const Color(0xFFCBD5E1)),
-              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppPalette.border),
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: AppShadows.card,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -514,7 +511,7 @@ class _MainClassFieldState extends State<_MainClassField> {
                           const SizedBox(width: 8),
                           Expanded(child: Text(e.className, style: const TextStyle(fontSize: 12))),
                           if (e.className == currentMain)
-                            const Icon(Icons.check, size: 14, color: Color(0xFF2563EB)),
+                            const Icon(Icons.check, size: 14, color: AppPalette.primary),
                         ],
                       ),
                     ),
@@ -536,13 +533,13 @@ class _MainClassFieldState extends State<_MainClassField> {
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
                       color: e.className == currentMain
-                          ? const Color(0xFF2563EB)
-                          : const Color(0xFFF1F5F9),
+                          ? AppPalette.primary
+                          : AppPalette.surfaceSoft,
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
                         color: e.className == currentMain
-                            ? const Color(0xFF2563EB)
-                            : const Color(0xFFCBD5E1),
+                            ? AppPalette.primary
+                            : AppPalette.border,
                       ),
                     ),
                     child: Text(
@@ -551,7 +548,7 @@ class _MainClassFieldState extends State<_MainClassField> {
                         fontSize: 11,
                         color: e.className == currentMain
                             ? Colors.white
-                            : const Color(0xFF475569),
+                            : const Color(0xFF5B5C74),
                         fontWeight: e.className == currentMain ? FontWeight.w500 : FontWeight.normal,
                       ),
                     ),
@@ -584,9 +581,11 @@ class _SwitchRow extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: value ? const Color(0xFFEFF6FF) : const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
+          color: value
+              ? AppPalette.primary.withValues(alpha: 0.07)
+              : AppPalette.surfaceSoft,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppPalette.border),
         ),
         child: Row(
           children: [
@@ -595,7 +594,7 @@ class _SwitchRow extends StatelessWidget {
                 label,
                 style: TextStyle(
                   fontSize: 13,
-                  color: value ? const Color(0xFF1E40AF) : const Color(0xFF475569),
+                  color: value ? AppPalette.primaryDark : const Color(0xFF5B5C74),
                   fontWeight: value ? FontWeight.w500 : FontWeight.normal,
                 ),
               ),
