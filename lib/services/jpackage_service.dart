@@ -10,6 +10,19 @@ class JPackageResult {
 }
 
 class JPackageService {
+  /// jpackage 在未显式指定 --jlink-options 时使用的默认值。
+  /// 注意：--jlink-options 是**整体替换**而非追加，因此一旦传了自定义选项，
+  /// 这些默认值就会全部失效（实测因此白扔约 4MB 体积），必须显式补回。
+  static const _defaultJlinkOptions =
+      '--strip-native-commands --strip-debug --no-man-pages --no-header-files';
+
+  /// 合并 jlink 选项：先补回 jpackage 默认值，再追加压缩与用户自定义选项。
+  String _jlinkOptions({String extra = ''}) {
+    final parts = <String>[_defaultJlinkOptions, '--compress=2'];
+    if (extra.trim().isNotEmpty) parts.add(extra.trim());
+    return parts.join(' ');
+  }
+
   Future<JPackageResult> buildAppImage({
     required String jpackagePath,
     required String appName,
@@ -27,8 +40,12 @@ class JPackageService {
     required LogSink log,
     ProcessHandle? handle,
   }) async {
+    // --module-path 是**路径列表**，必须用路径列表分隔符（Windows 为 ';'）拼接。
+    // 旧实现误用 Platform.pathSeparator（Windows 下是 '\'），得到
+    // "<workdir>\<javafx-lib>" 这种非法路径，jpackage 直接报
+    // ConfigException: Illegal char <:>，模块化打包整体失败。
     final effectiveModulePath = (extraModulePath != null && extraModulePath.isNotEmpty)
-        ? '$modulePath${Platform.pathSeparator}$extraModulePath'
+        ? '$modulePath${Platform.isWindows ? ';' : ':'}$extraModulePath'
         : modulePath;
     final args = <String>[
       '--type', 'app-image',
@@ -39,8 +56,8 @@ class JPackageService {
       '--dest', outputDir,
       '--vendor', vendor,
       '--verbose',
-      // jpackage 默认已 strip-debug/no-header-files/no-man-pages，额外添加 compress=2
-      '--jlink-options', '--compress=2',
+      // jpackage 默认的 strip 选项必须显式补回：--jlink-options 是整体替换
+      '--jlink-options', _jlinkOptions(),
     ];
     if (addModules != null && addModules.isNotEmpty) {
       args.addAll(['--add-modules', addModules]);
@@ -106,8 +123,8 @@ class JPackageService {
       '--dest', outputDir,
       '--vendor', vendor,
       '--verbose',
-      // jpackage 默认已 strip-debug/no-header-files/no-man-pages，额外添加 compress=2
-      '--jlink-options', '--compress=2',
+      // jpackage 默认的 strip 选项必须显式补回：--jlink-options 是整体替换
+      '--jlink-options', _jlinkOptions(),
     ];
     // JavaFX 等外部模块：交给 jlink 链进 runtime，不要放进 --input classpath
     if (modulePath != null && modulePath.isNotEmpty) {

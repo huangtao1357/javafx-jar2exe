@@ -18,6 +18,17 @@ class PipelineResult {
 }
 
 class PackPipeline {
+  /// 无论 jdeps 是否检测到，都显式链入 runtime 的 JDK 模块。
+  ///
+  /// jdk.crypto.ec 提供 SunEC（ECDSA/ECDHE）。jlink 默认**不跟随**服务绑定
+  /// （uses/provides），jdeps 也不会报告服务提供者，因此只靠依赖闭包永远拿不到它，
+  /// 表现为运行期 `NoSuchAlgorithmException: EC KeyPairGenerator not available`
+  /// 或对 ECDHE-only 服务端 TLS 握手失败。代价仅约 0.13MB。
+  ///
+  /// 切勿改用 jlink 的 `--bind-services`：实测它会把 runtime 从 6 个模块膨胀到
+  /// 35+ 个（带进 jdk.compiler/jdk.javadoc/jdk.jpackage 等）。
+  static const _alwaysJdkModules = ['jdk.crypto.ec'];
+
   final ProGuardService _proguard = ProGuardService();
   final Modularizer _modularizer = Modularizer();
   final JPackageService _jpackage = JPackageService();
@@ -132,6 +143,7 @@ class PackPipeline {
       jdkPath: config.jdkPath,
       log: log,
       handle: modHandle,
+      extraModulePath: fxModulePath,
     );
     _activeHandle = null;
     if (_canceled) return _canceledResult();
@@ -141,6 +153,37 @@ class PackPipeline {
       log('[Modular] 将回退到非模块化打包模式（class 不会完全隐藏，但功能可用）', LogLevel.warning);
     } else {
       moduleName = modResult.moduleName ?? moduleName;
+    }
+
+    // 组装 jlink 的 --add-modules（依赖闭包的根）：
+    //   1) JavaFX 模块——jlink 不会凭 module-info 自动找到 JavaFX SDK 里的模块；
+    //   2) jdeps 从字节码实测出的应用依赖（java.logging/java.sql 等）——只写进
+    //      module-info 的 requires 是不够的，模块必须同时存在于 runtime 镜像中，
+    //      否则运行期抛 NoClassDefFoundError；
+    //   3) 固定兜底的 JDK 模块（见 _alwaysJdkModules）。
+    //
+    // 重要：jpackage 一旦收到 --add-modules，jlink 的模块集就被限制成该列表的
+    // 传递闭包，不再使用 jpackage 的默认全集。因此**不能无条件传入**——非
+    // JavaFX + 非模块化时应用跑在 classpath 上、没有 module-info 提供依赖闭包，
+    // 只传 jdk.crypto.ec 会得到一个只有 java.base 的 runtime（实测确认）。
+    // 这种情况保持不传，继续沿用 jpackage 默认模块集。
+    final addModuleSet = <String>{
+      if (fxModulePath != null) ...fxAddModules.split(','),
+      if (useModular) ...modResult.requiredModules,
+      ..._alwaysJdkModules,
+    };
+    final addModulesArg =
+        addModuleSet.map((s) => s.trim()).where((s) => s.isNotEmpty).join(',');
+
+    if (addModulesArg.isEmpty) {
+      log('[jlink] 未指定 --add-modules，使用 jpackage 默认模块集（体积较大但兼容性最好）',
+          LogLevel.info);
+    } else {
+      log('[jlink] --add-modules $addModulesArg', LogLevel.info);
+      if (useModular && modResult.requiredModules.isEmpty) {
+        log('[jlink] 警告: jdeps 未检测到 JDK 模块依赖；若应用运行时报 '
+            'NoClassDefFoundError，多为反射/服务加载用法所致', LogLevel.warning);
+      }
     }
 
     // 清理旧的 app-image 目录（jpackage 不覆盖已存在的目录）
@@ -184,7 +227,7 @@ class PackPipeline {
         javaOptions: mergedJavaOptions,
         appArguments: config.appArguments,
         extraModulePath: fxModulePath,
-        addModules: fxModulePath != null ? fxAddModules : null,
+        addModules: addModulesArg.isEmpty ? null : addModulesArg,
         log: log,
         handle: handle,
       );
@@ -209,7 +252,7 @@ class PackPipeline {
         javaOptions: mergedJavaOptions,
         appArguments: config.appArguments,
         modulePath: fxModulePath,
-        addModules: fxModulePath != null ? fxAddModules : null,
+        addModules: addModulesArg.isEmpty ? null : addModulesArg,
         log: log,
         handle: handle,
       );

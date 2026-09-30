@@ -9,7 +9,18 @@ class ModularizeResult {
   final bool success;
   final String? moduleName;
   final String? message;
-  const ModularizeResult({required this.success, this.moduleName, this.message});
+
+  /// jdeps 生成的 module-info 中声明的 JDK/第三方模块（`requires` 列表）。
+  /// 这些模块必须同时进入 jlink 的 `--add-modules`，否则 runtime 里没有它们，
+  /// 应用运行时抛 NoClassDefFoundError（如 java.util.logging.Logger 缺失）。
+  final List<String> requiredModules;
+
+  const ModularizeResult({
+    required this.success,
+    this.moduleName,
+    this.message,
+    this.requiredModules = const [],
+  });
 }
 
 class Modularizer {
@@ -18,6 +29,7 @@ class Modularizer {
     required String jdkPath,
     required LogSink log,
     ProcessHandle? handle,
+    String? extraModulePath,
   }) async {
     final bin = p.join(jdkPath, 'bin');
     final jdeps = p.join(bin, 'jdeps.exe');
@@ -46,12 +58,20 @@ class Modularizer {
         return alreadyModule;
       }
 
-      log('[Modular] jdeps --generate-module-info $workDir "$jarPath"', LogLevel.command);
-      final jdepsResult = await runProcess(jdeps, [
-        '--generate-module-info',
-        workDir,
-        jarPath,
-      ], log: log, tag: '[Modular]', handle: handle);
+      // JavaFX SDK 必须进 --module-path：否则 jdeps 无法解析 javafx.* 引用，
+      // 生成的 module-info 会丢失 requires javafx.*，jlink 只链入 --add-modules 显式
+      // 列出的模块，最终 runtime 残缺、运行期抛 NoClassDefFoundError/IllegalAccessError。
+      // --ignore-missing-deps：fat jar 常含未打包进 jar 的可选依赖（如 okhttp 的可选
+      // 平台类），缺少它会让整个 module-info 生成失败并回退到非模块化打包。
+      final jdepsArgs = <String>['--generate-module-info', workDir];
+      if (extraModulePath != null && extraModulePath.isNotEmpty) {
+        jdepsArgs.addAll(['--module-path', extraModulePath]);
+      }
+      jdepsArgs.addAll(['--ignore-missing-deps', jarPath]);
+
+      log('[Modular] jdeps ${jdepsArgs.join(' ')}', LogLevel.command);
+      final jdepsResult = await runProcess(jdeps, jdepsArgs,
+          log: log, tag: '[Modular]', handle: handle);
       if (!jdepsResult) {
         return ModularizeResult(
           success: false,
@@ -67,17 +87,32 @@ class Modularizer {
         );
       }
 
-      final moduleName = _parseModuleName(await File(moduleInfoFile).readAsString());
+      final moduleInfoContent = await File(moduleInfoFile).readAsString();
+      final moduleName = _parseModuleName(moduleInfoContent);
       if (moduleName == null) {
         return ModularizeResult(success: false, message: '无法解析 module-info.java 中的模块名');
       }
 
-      log('[Modular] javac --patch-module $moduleName=$jarPath -d $workDir module-info.java', LogLevel.command);
-      final javacOk = await runProcess(javac, [
+      // jdeps 推断出的依赖模块，需要并入 jlink 的 --add-modules
+      final requiredModules = _parseRequiredModules(moduleInfoContent);
+      if (requiredModules.isNotEmpty) {
+        log('[Modular] jdeps 检测到依赖模块: ${requiredModules.join(', ')}', LogLevel.info);
+      }
+
+      // javac 编译 module-info 时同样必须带 --module-path：module-info 里的
+      // `requires javafx.*` 需要 JavaFX SDK 才能解析，否则报「找不到模块: javafx.base」
+      // 并使整个模块化流程失败、退回非模块化（class 明文暴露）。
+      final javacArgs = <String>[
+        if (extraModulePath != null && extraModulePath.isNotEmpty) ...[
+          '--module-path', extraModulePath,
+        ],
         '--patch-module', '$moduleName=$jarPath',
         '-d', workDir,
         moduleInfoFile,
-      ], log: log, tag: '[Modular]', handle: handle);
+      ];
+      log('[Modular] javac ${javacArgs.join(' ')}', LogLevel.command);
+      final javacOk = await runProcess(javac, javacArgs,
+          log: log, tag: '[Modular]', handle: handle);
       if (!javacOk) {
         return ModularizeResult(success: false, message: 'javac 编译 module-info 失败');
       }
@@ -100,7 +135,11 @@ class Modularizer {
       }
 
       log('[Modular] 模块化完成，模块名: $moduleName', LogLevel.success);
-      return ModularizeResult(success: true, moduleName: moduleName);
+      return ModularizeResult(
+        success: true,
+        moduleName: moduleName,
+        requiredModules: requiredModules,
+      );
     } finally {
       try {
         await Directory(workDir).delete(recursive: true);
@@ -152,5 +191,22 @@ class Modularizer {
   String? _parseModuleName(String content) {
     final m = RegExp(r'module\s+(\S+)\s*\{').firstMatch(content);
     return m?.group(1);
+  }
+
+  /// 从 module-info.java 提取顶层 `requires` 的模块名。
+  /// 只取匹配行开头的 requires（顶层缩进 4 空格），因此 `requires transitive x` 也能命中，
+  /// 而 `requires static` 位于同一行属于安全冗余（加入 --add-modules 无副作用）。
+  /// java.base 恒为隐式依赖，jlink 也禁止显式传入，故排除。
+  List<String> _parseRequiredModules(String content) {
+    final re = RegExp(
+      r'^\s*requires\s+(?:transitive\s+|static\s+)*([A-Za-z_][\w.]*)',
+      multiLine: true,
+    );
+    final seen = <String>{};
+    for (final m in re.allMatches(content)) {
+      final name = m.group(1)!;
+      if (name != 'java.base') seen.add(name);
+    }
+    return seen.toList();
   }
 }
