@@ -8,6 +8,7 @@ import 'log_types.dart';
 import 'process_runner.dart';
 import 'proguard_service.dart';
 import 'modularizer.dart';
+import 'nested_jar_analyzer.dart';
 import 'jpackage_service.dart';
 
 class PipelineResult {
@@ -31,6 +32,7 @@ class PackPipeline {
 
   final ProGuardService _proguard = ProGuardService();
   final Modularizer _modularizer = Modularizer();
+  final NestedJarAnalyzer _nestedAnalyzer = NestedJarAnalyzer();
   final JPackageService _jpackage = JPackageService();
 
   ProcessHandle? _activeHandle;
@@ -135,6 +137,20 @@ class PackPipeline {
     }
 
     String moduleName = config.moduleName.isNotEmpty ? config.moduleName : jarInfo.moduleName;
+
+    // 嵌套 jar（lib/*.jar）里的依赖 jdeps 看不见，必须先单独分析：
+    // fat jar 常把依赖 jar 原样塞进 lib/，像 okhttp/okio/jfoenix 需要的 java.logging
+    // 就会被完全漏掉，最终运行期 NoClassDefFoundError（java/util/logging/Logger）。
+    // 放在模块化之前，这些模块还能一并写进 module-info 的 requires。
+    final nestedModules = await _nestedAnalyzer.analyze(
+      jarPath: activeJar,
+      jdkPath: config.jdkPath,
+      log: log,
+    );
+    if (nestedModules.isNotEmpty) {
+      log('[Nested] 嵌套 jar 额外需要的模块: ${nestedModules.join(', ')}', LogLevel.info);
+    }
+
     log('步骤 2/4: 模块化处理', LogLevel.info);
     final modHandle = ProcessHandle();
     _activeHandle = modHandle;
@@ -144,6 +160,7 @@ class PackPipeline {
       log: log,
       handle: modHandle,
       extraModulePath: fxModulePath,
+      extraRequiredModules: nestedModules,
     );
     _activeHandle = null;
     if (_canceled) return _canceledResult();
@@ -157,19 +174,19 @@ class PackPipeline {
 
     // 组装 jlink 的 --add-modules（依赖闭包的根）：
     //   1) JavaFX 模块——jlink 不会凭 module-info 自动找到 JavaFX SDK 里的模块；
-    //   2) jdeps 从字节码实测出的应用依赖（java.logging/java.sql 等）——只写进
-    //      module-info 的 requires 是不够的，模块必须同时存在于 runtime 镜像中，
-    //      否则运行期抛 NoClassDefFoundError；
+    //   2) jdeps 实测出的应用依赖（java.logging/java.sql 等）——注意**模块化失败退回
+    //      非模块化时尤其要带上**：此时 jar 是普通 jar、没有 module-info 提供依赖闭包，
+    //      若还让 --add-modules 只含 JavaFX，jlink 就只链入 JavaFX 闭包，
+    //      运行期必然 NoClassDefFoundError（java/util/logging/Logger 等）；
     //   3) 固定兜底的 JDK 模块（见 _alwaysJdkModules）。
     //
     // 重要：jpackage 一旦收到 --add-modules，jlink 的模块集就被限制成该列表的
-    // 传递闭包，不再使用 jpackage 的默认全集。因此**不能无条件传入**——非
-    // JavaFX + 非模块化时应用跑在 classpath 上、没有 module-info 提供依赖闭包，
-    // 只传 jdk.crypto.ec 会得到一个只有 java.base 的 runtime（实测确认）。
-    // 这种情况保持不传，继续沿用 jpackage 默认模块集。
+    // 传递闭包，不再使用 jpackage 的默认全集。因此当**一个模块都没有**时不能传空
+    // 列表——非 JavaFX 且 jdeps 无结果时保持不传，沿用 jpackage 默认模块集。
     final addModuleSet = <String>{
       if (fxModulePath != null) ...fxAddModules.split(','),
-      if (useModular) ...modResult.requiredModules,
+      ...modResult.requiredModules,
+      ...nestedModules,
       ..._alwaysJdkModules,
     };
     final addModulesArg =
@@ -180,9 +197,9 @@ class PackPipeline {
           LogLevel.info);
     } else {
       log('[jlink] --add-modules $addModulesArg', LogLevel.info);
-      if (useModular && modResult.requiredModules.isEmpty) {
-        log('[jlink] 警告: jdeps 未检测到 JDK 模块依赖；若应用运行时报 '
-            'NoClassDefFoundError，多为反射/服务加载用法所致', LogLevel.warning);
+      if (modResult.requiredModules.isEmpty) {
+        log('[jlink] 提示: jdeps 未检测到 JDK 模块依赖；若应用运行时报 '
+            'NoClassDefFoundError，多为反射/服务加载用法所致', LogLevel.info);
       }
     }
 

@@ -1,6 +1,5 @@
 import 'dart:convert';
-import 'dart:io';
-import 'package:path/path.dart' as p;
+import 'dart:io';import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'log_types.dart';
 import 'process_runner.dart';
@@ -30,6 +29,7 @@ class Modularizer {
     required LogSink log,
     ProcessHandle? handle,
     String? extraModulePath,
+    Set<String> extraRequiredModules = const {},
   }) async {
     final bin = p.join(jdkPath, 'bin');
     final jdeps = p.join(bin, 'jdeps.exe');
@@ -73,9 +73,16 @@ class Modularizer {
       final jdepsResult = await runProcess(jdeps, jdepsArgs,
           log: log, tag: '[Modular]', handle: handle);
       if (!jdepsResult) {
+        // module-info 生成失败（典型：fat jar 带失效的 META-INF/services，
+        // 导致无法派生自动模块描述符）不代表依赖无从得知：
+        // `jdeps --list-deps` 走 class 分析路径，不做模块描述符校验，仍能列出依赖。
+        // 必须尽量拿到它——回退到非模块化后，这些模块是唯一能进入 jlink 的途径，
+        // 漏掉就是运行期 NoClassDefFoundError。
+        final fallback = await _listDepsModules(jdeps, jarPath, extraModulePath, log, handle);
         return ModularizeResult(
           success: false,
           message: 'jdeps 生成 module-info 失败',
+          requiredModules: fallback,
         );
       }
 
@@ -87,16 +94,45 @@ class Modularizer {
         );
       }
 
-      final moduleInfoContent = await File(moduleInfoFile).readAsString();
+      // jdeps 生成的 module-info 可能带 `provides X with Y`，而 X 所属模块并不存在：
+      // 一旦用了 --ignore-missing-deps，jdeps 会照写 provides 却丢掉对应的 requires，
+      // javac 随即报「程序包 X 不存在」。典型来源是 fat jar 里只打包了半个可选集成
+      // （如 fastjson 的 javax.ws.rs.ext / org.glassfish.jersey.internal.spi）。
+      // 服务绑定不是打包必需项，直接剔除 provides 才能让模块化流程走完。
+      final content = await File(moduleInfoFile).readAsString();
+      final sanitized = _stripProvides(content);
+      await File(moduleInfoFile).writeAsString(sanitized.content);
+
+      final moduleInfoContent = sanitized.content;
       final moduleName = _parseModuleName(moduleInfoContent);
       if (moduleName == null) {
         return ModularizeResult(success: false, message: '无法解析 module-info.java 中的模块名');
       }
 
+      if (sanitized.droppedProvides.isNotEmpty) {
+        log('[Modular] 已剔除 ${sanitized.droppedProvides.length} 条无法解析的 provides 声明'
+            '（不影响功能，避免 javac 因缺失可选依赖而失败）', LogLevel.warning);
+      }
+
       // jdeps 推断出的依赖模块，需要并入 jlink 的 --add-modules
       final requiredModules = _parseRequiredModules(moduleInfoContent);
+
+      // 嵌套 jar 的依赖 jdeps 看不到，注入到 module-info 的 requires，
+      // 否则 app 模块读不到这些模块，运行期抛 IllegalAccessError
+      // （"module X does not read module java.logging"）。
+      final injected = extraRequiredModules
+          .where((m) => !requiredModules.contains(m) && m != 'java.base')
+          .toList();
+      if (injected.isNotEmpty) {
+        final patched = _injectRequires(moduleInfoFile, injected);
+        await File(moduleInfoFile).writeAsString(patched);
+        requiredModules.addAll(injected);
+        log('[Modular] 注入嵌套 jar 依赖到 module-info: ${injected.join(', ')}',
+            LogLevel.info);
+      }
+
       if (requiredModules.isNotEmpty) {
-        log('[Modular] jdeps 检测到依赖模块: ${requiredModules.join(', ')}', LogLevel.info);
+        log('[Modular] 依赖模块合计: ${requiredModules.join(', ')}', LogLevel.info);
       }
 
       // javac 编译 module-info 时同样必须带 --module-path：module-info 里的
@@ -147,6 +183,48 @@ class Modularizer {
     }
   }
 
+  /// `jdeps --list-deps` 兜底：module-info 生成失败时仍列出应用依赖的模块。
+  /// 该模式只做 class 级分析，不校验模块描述符，因此对带失效 service 的 fat jar 有效。
+  Future<List<String>> _listDepsModules(
+    String jdeps,
+    String jarPath,
+    String? extraModulePath,
+    LogSink log,
+    ProcessHandle? handle,
+  ) async {
+    final args = <String>['--list-deps'];
+    if (extraModulePath != null && extraModulePath.isNotEmpty) {
+      args.addAll(['--module-path', extraModulePath]);
+    }
+    args.addAll(['--ignore-missing-deps', jarPath]);
+
+    log('[Modular] 回退分析: jdeps ${args.join(' ')}', LogLevel.command);
+    try {
+      final result = await Process.run(
+        jdeps,
+        args,
+        stdoutEncoding: const Utf8Codec(allowMalformed: true),
+        stderrEncoding: const Utf8Codec(allowMalformed: true),
+      ).timeout(const Duration(seconds: 60));
+      final modules = <String>{};
+      for (final raw in const LineSplitter().convert(result.stdout as String)) {
+        final t = raw.trim();
+        if (t.isEmpty || t == 'java.base') continue;
+        if (!RegExp(r'^[A-Za-z_][\w.]*$').hasMatch(t)) continue;
+        modules.add(t);
+      }
+      if (modules.isNotEmpty) {
+        log('[Modular] 回退分析得到依赖模块: ${modules.join(', ')}', LogLevel.info);
+      } else {
+        log('[Modular] 回退分析未得到可用模块列表', LogLevel.warning);
+      }
+      return modules.toList();
+    } catch (e) {
+      log('[Modular] 回退分析失败: $e', LogLevel.warning);
+      return [];
+    }
+  }
+
   /// 通过 `jar --describe-module` 判断 jar 是否为显式模块化 jar，并提取模块名。
   /// 模块化 jar 首行形如 `<module>[@<version>] jar:file:...!/module-info.class`；
   /// 非模块化 jar 输出的是本地化提示文案（如“找不到模块描述符”），不含该标记，
@@ -191,6 +269,45 @@ class Modularizer {
   String? _parseModuleName(String content) {
     final m = RegExp(r'module\s+(\S+)\s*\{').firstMatch(content);
     return m?.group(1);
+  }
+
+  /// 把 `requires <mod>;` 注入到 module-info.java 的模块声明之后。
+  /// 插入到 `{` 紧跟的行后面，位置对语法无影响。
+  String _injectRequires(String moduleInfoPath, List<String> modules) {
+    final lines = File(moduleInfoPath).readAsLinesSync();
+    final headerIdx = lines.indexWhere((l) => l.trim().startsWith('module '));
+    if (headerIdx < 0) return lines.join('\n');
+    final out = <String>[...lines];
+    out.insertAll(
+      headerIdx + 1,
+      modules.map((m) => '    requires $m;'),
+    );
+    return out.join('\n');
+  }
+
+  /// 剔除 module-info 中所有的 `provides ... with ...;` 声明。
+  /// `provides` 只影响 JPMS 服务绑定（jlink --bind-services），打包不依赖它；
+  /// 而它引用的服务接口所属模块常常不在 jar 里，会让 javac 直接编译失败。
+  ({String content, List<String> droppedProvides}) _stripProvides(String content) {
+    final out = <String>[];
+    final dropped = <String>[];
+    bool skipping = false;
+    for (final line in const LineSplitter().convert(content)) {
+      final t = line.trim();
+      if (skipping) {
+        // provides 可能跨多行，直到分号结束
+        if (t.endsWith(';')) skipping = false;
+        continue;
+      }
+      if (t.startsWith('provides ')) {
+        dropped.add(t.split(RegExp(r'\s+'))[1]);
+        // 单行 provides 自身以 ';' 结尾；否则进入续行模式
+        if (!t.endsWith(';')) skipping = true;
+        continue;
+      }
+      out.add(line);
+    }
+    return (content: out.join('\n'), droppedProvides: dropped);
   }
 
   /// 从 module-info.java 提取顶层 `requires` 的模块名。

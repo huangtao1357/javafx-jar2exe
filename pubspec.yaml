@@ -2,7 +2,7 @@ name: jpackage_gui
 description: "JavaFX jar 打包成 Windows exe 的图形工具，封装 jpackage 命令。"
 publish_to: 'none'
 
-version: 1.0.5+5
+version: 1.0.6+6
 
 environment:
   sdk: ^3.11.5
