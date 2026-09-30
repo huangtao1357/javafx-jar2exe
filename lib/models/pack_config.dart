@@ -19,6 +19,17 @@ class PackConfig {
   String javafxModules;
   bool stripUnusedJavaFxDlls;
 
+  /// 是否尝试模块化打包（class 隐藏进 jimage）。
+  ///
+  /// 默认 **false**：模块化会把应用变成 JPMS 命名模块，而大量 JavaFX 应用把资源
+  /// 放在非 package 目录下（如 `logo/x.png`、`fxml/a.fxml`）并用
+  /// `new Image("logo/x.png")` 加载——在命名模块里 Class.getResource 不再回退到
+  /// 系统类加载器，资源直接找不到，应用启动即抛
+  /// `IllegalArgumentException: Invalid URL or resource not found`。
+  /// 实测：同一应用 classpath 模式正常、模块化模式必然失败。
+  /// 因此默认关闭；确实需要隐藏 class 时再显式开启并自行验证资源加载。
+  bool enableModularPackaging;
+
   PackConfig({
     this.jarPath = '',
     this.appName = '',
@@ -37,6 +48,7 @@ class PackConfig {
     this.javafxSdkPath,
     this.javafxModules = 'javafx.controls,javafx.fxml,javafx.graphics',
     this.stripUnusedJavaFxDlls = true,
+    this.enableModularPackaging = false,
   });
 
   String? validate() {
@@ -77,6 +89,7 @@ class PackConfig {
         'javafxSdkPath': javafxSdkPath,
         'javafxModules': javafxModules,
         'stripUnusedJavaFxDlls': stripUnusedJavaFxDlls,
+        'enableModularPackaging': enableModularPackaging,
       };
 
   factory PackConfig.fromJson(Map<String, dynamic> json) => PackConfig(
@@ -97,6 +110,7 @@ class PackConfig {
         javafxSdkPath: json['javafxSdkPath'] as String?,
         javafxModules: json['javafxModules'] as String? ?? 'javafx.controls,javafx.fxml,javafx.graphics',
         stripUnusedJavaFxDlls: json['stripUnusedJavaFxDlls'] as bool? ?? true,
+        enableModularPackaging: json['enableModularPackaging'] as bool? ?? false,
       );
 
   PackConfig copy() => PackConfig.fromJson(toJson());

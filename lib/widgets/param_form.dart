@@ -141,6 +141,12 @@ class ParamForm extends StatelessWidget {
           enabled: !disabled,
           onChanged: (v) => vm.updateConfig((x) => x.generateMsi = v),
         ),
+        _SwitchRow(
+          label: '模块化打包（class 隐藏进 jimage；资源用非 package 路径加载的应用会启动失败）',
+          value: c.enableModularPackaging,
+          enabled: !disabled,
+          onChanged: (v) => vm.updateConfig((x) => x.enableModularPackaging = v),
+        ),
       ],
     );
   }

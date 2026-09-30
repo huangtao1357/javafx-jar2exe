@@ -183,6 +183,24 @@ class Modularizer {
     }
   }
 
+  /// 只做依赖分析（`jdeps --list-deps`），不生成 module-info。
+  /// 供 classpath 打包模式使用：此时不需要模块描述符，但仍必须知道应用依赖哪些
+  /// JDK 模块，否则 `--add-modules` 凑不齐、runtime 缺模块导致运行期崩溃。
+  Future<List<String>> listDependencyModules({
+    required String jarPath,
+    required String jdkPath,
+    required LogSink log,
+    String? extraModulePath,
+  }) async {
+    final jdeps = p.join(jdkPath, 'bin', 'jdeps.exe');
+    if (!File(jdeps).existsSync()) {
+      log('[Modular] 未找到 jdeps，跳过依赖分析（将使用 jpackage 默认模块集）',
+          LogLevel.warning);
+      return [];
+    }
+    return _listDepsModules(jdeps, jarPath, extraModulePath, log, null);
+  }
+
   /// `jdeps --list-deps` 兜底：module-info 生成失败时仍列出应用依赖的模块。
   /// 该模式只做 class 级分析，不校验模块描述符，因此对带失效 service 的 fat jar 有效。
   Future<List<String>> _listDepsModules(

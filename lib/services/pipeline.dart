@@ -152,23 +152,38 @@ class PackPipeline {
     }
 
     log('步骤 2/4: 模块化处理', LogLevel.info);
-    final modHandle = ProcessHandle();
-    _activeHandle = modHandle;
-    final modResult = await _modularizer.modularize(
-      jarPath: activeJar,
-      jdkPath: config.jdkPath,
-      log: log,
-      handle: modHandle,
-      extraModulePath: fxModulePath,
-      extraRequiredModules: nestedModules,
-    );
-    _activeHandle = null;
-    if (_canceled) return _canceledResult();
+    ModularizeResult modResult;
+    if (config.enableModularPackaging) {
+      log('[Modular] 已启用模块化打包（class 隐藏进 jimage）。'
+          '注意：命名模块下 Class.getResource 不再回退到系统类加载器，'
+          '若应用用 new Image("logo/x.png") 这类非 package 路径加载资源会启动失败。',
+          LogLevel.warning);
+      final modHandle = ProcessHandle();
+      _activeHandle = modHandle;
+      modResult = await _modularizer.modularize(
+        jarPath: activeJar,
+        jdkPath: config.jdkPath,
+        log: log,
+        handle: modHandle,
+        extraModulePath: fxModulePath,
+        extraRequiredModules: nestedModules,
+      );
+      _activeHandle = null;
+      if (_canceled) return _canceledResult();
+    } else {
+      // 默认走 classpath 打包。模块化会把应用变成 JPMS 命名模块，而 JavaFX 应用
+      // 普遍把资源放在非 package 目录（logo/、fxml/）并用 Class.getResource 加载，
+      // 命名模块下会直接找不到资源、启动即崩（实测确认）。因此默认关闭，
+      // 改为用 jdeps + 嵌套 jar 分析把依赖模块补进 jlink，保证 runtime 完整。
+      log('[Modular] 跳过模块化，使用 classpath 打包（兼容性最好）', LogLevel.info);
+      modResult = await _analyzeDepsWithoutModularizing(activeJar, config.jdkPath, log);
+    }
+
     bool useModular = modResult.success;
     if (!useModular) {
       log('[Modular] ${modResult.message ?? "模块化失败"}', LogLevel.warning);
       log('[Modular] 将回退到非模块化打包模式（class 不会完全隐藏，但功能可用）', LogLevel.warning);
-    } else {
+    } else if (config.enableModularPackaging) {
       moduleName = modResult.moduleName ?? moduleName;
     }
 
@@ -324,6 +339,29 @@ class PackPipeline {
     log('====== 打包完成 ======', LogLevel.success);
     log('可执行文件: $exePath', LogLevel.success);
     return PipelineResult(success: true, outputExePath: exePath);
+  }
+
+  /// classpath 模式下只需依赖分析结果（不需要 module-info）：
+  /// 复用 Modularizer 的 `jdeps --list-deps` 兜底分析，拿到应用依赖的模块，
+  /// 供后续并入 jlink 的 `--add-modules`，避免 runtime 缺模块。
+  ///
+  /// 返回的 ModularizeResult.success 恒为 false —— 语义是「不走模块化」，
+  /// 调用方据此选择 classpath 打包分支。
+  Future<ModularizeResult> _analyzeDepsWithoutModularizing(
+    String jarPath,
+    String jdkPath,
+    LogSink log,
+  ) async {
+    final modules = await _modularizer.listDependencyModules(
+      jarPath: jarPath,
+      jdkPath: jdkPath,
+      log: log,
+    );
+    return ModularizeResult(
+      success: false,
+      message: '已按配置跳过模块化（classpath 打包）',
+      requiredModules: modules,
+    );
   }
 
   Future<String> _prepareWorkDir() async {

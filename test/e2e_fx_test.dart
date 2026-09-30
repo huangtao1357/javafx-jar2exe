@@ -75,6 +75,7 @@ void main() {
       keepResources: true,
       generateMsi: false,
       javafxSdkPath: _fxSdk,
+      enableModularPackaging: true, // 本用例验证模块化路径
     );
 
     final result = await PackPipeline().run(

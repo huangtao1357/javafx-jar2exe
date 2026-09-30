@@ -74,6 +74,7 @@ void main() {
       keepResources: true,
       generateMsi: false,
       javafxSdkPath: _fxSdk,
+      enableModularPackaging: true, // 本用例验证 provides 剔除后模块化能走通
     );
 
     final result = await PackPipeline().run(

@@ -72,6 +72,7 @@ void main() {
       enableProGuard: true,
       keepResources: true,
       generateMsi: false,
+      enableModularPackaging: true, // 本用例验证模块化路径
     );
 
     final result = await PackPipeline().run(
