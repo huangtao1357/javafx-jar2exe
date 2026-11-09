@@ -38,6 +38,10 @@ class PackViewModel extends ChangeNotifier {
   String? lastOutputExe;
   String? errorMessage;
 
+  /// 未选择 jar 时的兜底输出目录。
+  String get _fallbackOutputDir =>
+      p.join(p.dirname(Platform.resolvedExecutable), 'output');
+
   bool _autoScroll = true;
   bool get autoScroll => _autoScroll;
   void setAutoScroll(bool v) {
@@ -58,10 +62,8 @@ class PackViewModel extends ChangeNotifier {
     if (jdkInfo != null && config.jdkPath.isEmpty) {
       config.jdkPath = jdkInfo!.jdkPath;
     }
-    if (config.outputDir.isEmpty) {
-      final exeDir = p.dirname(Platform.resolvedExecutable);
-      config.outputDir = p.join(exeDir, 'output');
-    }
+    // 恢复配置时按当前 jar 校正输出目录，避免沿用上一个项目的目录
+    config.syncOutputDir(_fallbackOutputDir);
     notifyListeners();
   }
 
@@ -72,6 +74,8 @@ class PackViewModel extends ChangeNotifier {
   Future<void> selectJar(String path) async {
     if (path.isEmpty) return;
     config.jarPath = path;
+    // 输出目录优先跟随所选 jar 的同级目录
+    config.syncOutputDir(_fallbackOutputDir);
     errorMessage = null;
     notifyListeners();
     try {
@@ -88,7 +92,19 @@ class PackViewModel extends ChangeNotifier {
   }
 
   void updateConfig(void Function(PackConfig c) updater) {
+    final previousOutputDir = config.outputDir;
     updater(config);
+    // 用户手动改过输出目录后，切换 jar 不再覆盖其选择
+    if (config.outputDir != previousOutputDir) {
+      config.outputDirFollowsJar = false;
+    }
+    notifyListeners();
+  }
+
+  /// 重新让输出目录跟随当前 jar 的同级目录。
+  void useJarDirectoryAsOutput() {
+    if (config.jarPath.isEmpty) return;
+    config.followJarOutputDir(config.jarPath);
     notifyListeners();
   }
 
@@ -220,6 +236,7 @@ class PackViewModel extends ChangeNotifier {
     errorMessage = null;
     logEntries.clear();
     if (jdkInfo != null) config.jdkPath = jdkInfo!.jdkPath;
+    config.syncOutputDir(_fallbackOutputDir);
     notifyListeners();
   }
 }

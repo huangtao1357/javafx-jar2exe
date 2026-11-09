@@ -53,6 +53,13 @@ class ParamForm extends StatelessWidget {
           value: c.outputDir,
           enabled: !disabled,
           buttonText: '选择目录',
+          suffixIcon: disabled || c.jarPath.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: '恢复为所选 jar 的同级目录',
+                  icon: const Icon(Icons.link_rounded, size: 18),
+                  onPressed: vm.useJarDirectoryAsOutput,
+                ),
           onPick: () async {
             final res = await FilePicker.platform.getDirectoryPath();
             return res;
@@ -345,6 +352,7 @@ class _PathField extends StatefulWidget {
   final String value;
   final bool enabled;
   final String buttonText;
+  final Widget? suffixIcon;
   final Future<String?> Function() onPick;
   final ValueChanged<String> onChanged;
   const _PathField({
@@ -354,6 +362,7 @@ class _PathField extends StatefulWidget {
     required this.buttonText,
     required this.onPick,
     required this.onChanged,
+    this.suffixIcon,
   });
 
   @override
@@ -390,7 +399,10 @@ class _PathFieldState extends State<_PathField> {
         Expanded(
           child: TextField(
             controller: _controller,
-            decoration: InputDecoration(labelText: widget.label),
+            decoration: InputDecoration(
+              labelText: widget.label,
+              suffixIcon: widget.suffixIcon,
+            ),
             enabled: widget.enabled,
             onChanged: widget.onChanged,
           ),

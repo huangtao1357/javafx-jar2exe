@@ -1,3 +1,4 @@
+import 'package:path/path.dart' as p;
 import 'jar_info.dart';
 
 class PackConfig {
@@ -7,6 +8,8 @@ class PackConfig {
   String mainClass;
   String? iconPath;
   String outputDir;
+  /// 输出目录是否自动跟随所选 jar 所在目录；用户手动修改输出目录后为 false。
+  bool outputDirFollowsJar;
   String vendor;
   String jdkPath;
   String moduleName;
@@ -37,6 +40,7 @@ class PackConfig {
     this.mainClass = '',
     this.iconPath,
     this.outputDir = '',
+    this.outputDirFollowsJar = true,
     this.vendor = '',
     this.jdkPath = '',
     this.moduleName = '',
@@ -78,6 +82,7 @@ class PackConfig {
         'mainClass': mainClass,
         'iconPath': iconPath,
         'outputDir': outputDir,
+        'outputDirFollowsJar': outputDirFollowsJar,
         'vendor': vendor,
         'jdkPath': jdkPath,
         'moduleName': moduleName,
@@ -99,6 +104,8 @@ class PackConfig {
         mainClass: json['mainClass'] as String? ?? '',
         iconPath: json['iconPath'] as String?,
         outputDir: json['outputDir'] as String? ?? '',
+        // 旧版本配置无此字段：默认跟随，避免沿用上一个项目的输出目录
+        outputDirFollowsJar: json['outputDirFollowsJar'] as bool? ?? true,
         vendor: json['vendor'] as String? ?? '',
         jdkPath: json['jdkPath'] as String? ?? '',
         moduleName: json['moduleName'] as String? ?? '',
@@ -114,6 +121,26 @@ class PackConfig {
       );
 
   PackConfig copy() => PackConfig.fromJson(toJson());
+
+  /// jar 文件所在的同级目录，用作默认输出目录。
+  static String jarOutputDir(String jarPath) =>
+      p.dirname(p.normalize(p.absolute(jarPath)));
+
+  /// 按当前 [jarPath] 刷新输出目录：自动跟随状态下优先使用 jar 所在目录，
+  /// 未选择 jar 时退回 [fallbackDir]。
+  void syncOutputDir(String fallbackDir) {
+    if (!outputDirFollowsJar) {
+      if (outputDir.isEmpty) outputDir = fallbackDir;
+      return;
+    }
+    outputDir = jarPath.isNotEmpty ? jarOutputDir(jarPath) : fallbackDir;
+  }
+
+  /// 重新启用「输出目录跟随 jar 所在目录」并立即刷新。
+  void followJarOutputDir(String jarPath) {
+    outputDirFollowsJar = true;
+    outputDir = jarOutputDir(jarPath);
+  }
 
   void applyJarInfo(JarInfo info) {
     jarPath = info.path;
